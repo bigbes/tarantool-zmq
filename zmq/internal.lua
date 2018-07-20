@@ -232,9 +232,9 @@ end
 
 local serialize_ptr, deserialize_ptr = ptrtostr, strtoptr
 
-local function pget_internal(lib, elem) return (lib[elem] == nil) end
+local function pget_internal(lib, elem) return (lib[elem] ~= nil) end
 local function pget(lib, name)
-    local ok, found = pcall(pget_internal, lib, elem)
+    local ok, found = pcall(pget_internal, lib, name)
     return (ok and found)
 end
 
@@ -246,9 +246,7 @@ function _M.zmq_errno()
 end
 
 function _M.zmq_strerror(errnum)
-    print(errnum)
-  local str = libzmq3.zmq_strerror (errnum);
-  return ffi.string(str)
+  return ffi.string(libzmq3.zmq_strerror(errnum))
 end
 
 function _M.zmq_poll(items, nitems, timeout)
@@ -264,21 +262,17 @@ function _M.zmq_proxy(frontend, backend, capture)
 end
 
 if pget(libzmq3, "zmq_proxy_steerable") then
-
-function _M.zmq_proxy_steerable(frontend, backend, capture, control)
-  return libzmq3.zmq_proxy_steerable(frontend, backend, capture, control)
-end
-
+  function _M.zmq_proxy_steerable(frontend, backend, capture, control)
+    return libzmq3.zmq_proxy_steerable(frontend, backend, capture, control)
+  end
 end
 
 if pget(libzmq3, "zmq_has") then
-
-function _M.zmq_has(capability)
-  local v = libzmq3.zmq_has(capability)
-  if v == 1 then return true end
-  return false
-end
-
+  function _M.zmq_has(capability)
+    local v = libzmq3.zmq_has(capability)
+    if v == 1 then return true end
+    return false
+  end
 end
 
 end
@@ -287,25 +281,25 @@ end
 do
 
 function _M.zmq_ctx_new()
-  local ctx = libzmq3.zmq_ctx_new()
-  ffi.gc(ctx, _M.zmq_ctx_term)
-  return ctx
+  local rv = libzmq3.zmq_ctx_new()
+  if rv == nil then return nil end
+  return ffi.gc(rv, _M.zmq_ctx_term)
 end
 
 if pget(libzmq3, "zmq_ctx_shutdown") then
-function _M.zmq_ctx_shutdown(ctx)
-  return libzmq3.zmq_ctx_shutdown(ctx)
-end
+  function _M.zmq_ctx_shutdown(ctx)
+    return libzmq3.zmq_ctx_shutdown(ctx)
+  end
 end
 
 if pget(libzmq3, "zmq_ctx_term") then
-function _M.zmq_ctx_term(ctx)
-  return libzmq3.zmq_ctx_term(ffi.gc(ctx, nil))
-end
+  function _M.zmq_ctx_term(ctx)
+    return libzmq3.zmq_ctx_term(ffi.gc(ctx, nil))
+  end
 else
-function _M.zmq_ctx_term(ctx)
-  libzmq3.zmq_ctx_destroy(ffi.gc(ctx, nil))
-end
+  function _M.zmq_ctx_term(ctx)
+    libzmq3.zmq_ctx_destroy(ffi.gc(ctx, nil))
+  end
 end
 
 function _M.zmq_ctx_get(ctx, option)
@@ -363,12 +357,12 @@ function _M.zmq_skt_setopt_str(skt, option, optval)
   return libzmq3.zmq_setsockopt(skt, option, optval, #optval)
 end
 
-function _M.zmq_skt_setopt_str_arr(skt, options, optvals)
+function _M.zmq_skt_setopt_str_arr(skt, option, optvals)
   if type(optvals) == 'string' then
     optvals = { optvals }
   end
   for _, optval in ipairs(optvals) do
-    if libzmq3.zmq_setsockopt(skt, optvals, optval, #optval) == -1 then
+    if libzmq3.zmq_setsockopt(skt, option, optval, #optval) == -1 then
         return -1
     end
   end
@@ -495,7 +489,7 @@ function _M.zmq_msg_size(msg)
 end
 
 function _M.zmq_msg_close(msg)
-  libzmq3.zmq_msg_close(msg)
+  return libzmq3.zmq_msg_close(msg)
 end
 
 local function get_msg_copy(copy)
@@ -553,80 +547,72 @@ function _M.zmq_msg_set(msg, option, optval)
 end
 
 if pget(libzmq3, "zmq_msg_gets") then
-
-function _M.zmq_msg_gets(msg, option)
-  local value = libzmq3.zmq_msg_gets(msg, option)
-  if value == NULL then return end
-  return ffi.string(value)
-end
-
+  function _M.zmq_msg_gets(msg, option)
+    local value = libzmq3.zmq_msg_gets(msg, option)
+    if value == NULL then return end
+    return ffi.string(value)
+  end
 end
 
 end
 
 -- zmq_z85_encode, zmq_z85_decode
 if pget(libzmq3, "zmq_z85_encode") then
+  -- we alloc buffers for CURVE encoded key size
+  local alloc_z85_buff = create_tmp_allocator(41)
 
--- we alloc buffers for CURVE encoded key size
-local alloc_z85_buff = create_tmp_allocator(41)
+  function _M.zmq_z85_encode(data)
+    local len = math.floor(#data * 1.25 + 1.0001)
+    local buf = alloc_z85_buff(len)
+    local ret = libzmq3.zmq_z85_encode(buf, data, #data)
+    if ret == NULL then error("size of the block must be divisible by 4") end
+    return ffi.string(buf, len - 1)
+  end
 
-function _M.zmq_z85_encode(data)
-  local len = math.floor(#data * 1.25 + 1.0001)
-  local buf = alloc_z85_buff(len)
-  local ret = libzmq3.zmq_z85_encode(buf, data, #data)
-  if ret == NULL then error("size of the block must be divisible by 4") end
-  return ffi.string(buf, len - 1)
-end
-
-function _M.zmq_z85_decode(data)
-  local len = math.floor(#data * 0.8 + 0.0001)
-  local buf = alloc_z85_buff(len)
-  local ret = libzmq3.zmq_z85_decode(buf, data)
-  if ret == NULL then error("size of the block must be divisible by 5") end
-  return ffi.string(buf, len)
-end
-
+  function _M.zmq_z85_decode(data)
+    local len = math.floor(#data * 0.8 + 0.0001)
+    local buf = alloc_z85_buff(len)
+    local ret = libzmq3.zmq_z85_decode(buf, data)
+    if ret == NULL then error("size of the block must be divisible by 5") end
+    return ffi.string(buf, len)
+  end
 end
 
 -- zmq_curve_keypair
 if pget(libzmq3, "zmq_curve_keypair") then
+  function _M.zmq_curve_keypair(as_binary)
+    local public_key = ffi.new(vla_char_t, 41)
+    local secret_key = ffi.new(vla_char_t, 41)
+    local ret = libzmq3.zmq_curve_keypair(public_key, secret_key)
+    if ret == -1 then return -1 end
+    if not as_binary then
+      return ffi.string(public_key, 40), ffi.string(secret_key, 40)
+    end
+    local public_key_bin = ffi.new(vla_char_t, 32)
+    local secret_key_bin = ffi.new(vla_char_t, 32)
 
-function _M.zmq_curve_keypair(as_binary)
-  local public_key = ffi.new(vla_char_t, 41)
-  local secret_key = ffi.new(vla_char_t, 41)
-  local ret = libzmq3.zmq_curve_keypair(public_key, secret_key)
-  if ret == -1 then return -1 end
-  if not as_binary then
-    return ffi.string(public_key, 40), ffi.string(secret_key, 40)
+    libzmq3.zmq_z85_decode(public_key_bin, public_key)
+    libzmq3.zmq_z85_decode(secret_key_bin, secret_key)
+
+    return ffi.string(public_key_bin, 32), ffi.string(secret_key_bin, 32)
   end
-  local public_key_bin = ffi.new(vla_char_t, 32)
-  local secret_key_bin = ffi.new(vla_char_t, 32)
-
-  libzmq3.zmq_z85_decode(public_key_bin, public_key)
-  libzmq3.zmq_z85_decode(secret_key_bin, secret_key)
-
-  return ffi.string(public_key_bin, 32), ffi.string(secret_key_bin, 32)
-end
-
 end
 
 -- zmq_curve_public
 if pget(libzmq3, "zmq_curve_public") then
+  function _M.zmq_curve_public(secret_key, as_binary)
+    local public_key = ffi.new(vla_char_t, 41)
+    local ret = libzmq3.zmq_curve_public(public_key, secret_key)
+    if ret == -1 then return -1 end
+    if not as_binary then
+      return ffi.string(public_key, 40)
+    end
+    local public_key_bin = ffi.new(vla_char_t, 32)
 
-function _M.zmq_curve_public(secret_key, as_binary)
-  local public_key = ffi.new(vla_char_t, 41)
-  local ret = libzmq3.zmq_curve_public(public_key, secret_key)
-  if ret == -1 then return -1 end
-  if not as_binary then
-    return ffi.string(public_key, 40)
+    libzmq3.zmq_z85_decode(public_key_bin, public_key)
+
+    return ffi.string(public_key_bin, 32)
   end
-  local public_key_bin = ffi.new(vla_char_t, 32)
-
-  libzmq3.zmq_z85_decode(public_key_bin, public_key)
-
-  return ffi.string(public_key_bin, 32)
-end
-
 end
 
 -- zmq_recv_event

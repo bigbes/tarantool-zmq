@@ -12,15 +12,34 @@ if type(internal_lib) == 'string' then
     internal_lib = false
 end
 
+if not internal_lib then -- async is disabled
+    internal_lib = {
+        async_connect    = function(socket, uri, timeout) return zmq.zmq_connect(socket, uri)    end,
+        async_disconnect = function(socket, uri, timeout) return zmq.zmq_disconnect(socket, uri) end,
+        async_bind       = function(socket, uri, timeout) return zmq.zmq_bind(socket, uri)       end,
+        async_unbind     = function(socket, uri, timeout) return zmq.zmq_unbind(socket, uri)     end,
+    }
+end
+
 local function zmq_strerror(_errno)
     return internal.zmq_strerror(_errno or errno())
 end
 
 -- [[=====================================================================]] --
 
+local function zmq_msg_check(obj, method, args)
+    if not getmetatable(obj) or getmetatable(obj).__type ~= 'zmq.message' then
+        error('Usage: msg:' .. method .. '(' .. args .. ')', 3)
+    elseif obj.msg == nil then
+        error('Message is closed', 3)
+    end
+    return true
+end
+
 local zmq_msg_new
 
 local function zmq_msg_copy(self)
+    zmq_msg_check(self, 'copy', '')
     local dst = assert(zmq_msg_new(), 'Failed to allocate memory for message')
     local rv = internal.zmq_msg_copy(dst, self.msg)
     if rv == -1 then
@@ -31,19 +50,25 @@ local function zmq_msg_copy(self)
 end
 
 local function zmq_msg_size(self)
+    zmq_msg_check(self, 'size', '')
     return internal.zmq_msg_size(self.msg)
 end
 
 local function zmq_msg_data(self, offset, limit)
+    zmq_msg_check(self, 'data', 'offset, limit')
     return internal.zmq_msg_data_str(self.msg, offset, limit)
 end
 
 local function zmq_msg_close(self)
-    return internal.zmq_msg_close(ffi.gc(self.msg, nil))
+    zmq_msg_check(self, 'close', '')
+    local msg = ffi.gc(self.msg, nil)
+    self.msg = nil
+    return internal.zmq_msg_close(msg) == 0
 end
 
 local function zmq_msg_more(self)
-    return internal.zmq_msg_more(self.msg)
+    zmq_msg_check(self, 'more', '')
+    return internal.zmq_msg_more(self.msg) == 1
 end
 
 local zmq_msg_methods = {
@@ -62,7 +87,10 @@ zmq_msg_new = function(value, opts)
         msg = internal.zmq_msg_init(nil)
     end
     ffi.gc(msg, internal.zmq_msg_close)
-    local self = setmetatable({ msg = msg }, { __index = zmq_msg_methods })
+    local self = setmetatable({
+        msg = msg,
+        closed = false
+    }, { __index = zmq_msg_methods, __type = 'zmq.message' })
     if value then
         internal.zmq_msg_set_data(self.msg, value)
     end
@@ -81,7 +109,7 @@ local function zmq_sopts_index(self, name)
     local socket = getmetatable(self).__socket
     local rv = internal['zmq_skt_getopt_' .. func[3]](socket, func[1])
     if rv == -1 then
-        return nil, ('Failed zmq_getsockopt[%s]: %s'):format(name, zmq_strerror())
+        error(('Failed zmq_getsockopt[%s]: %s'):format(name, zmq_strerror()), 2)
     end
     return rv
 end
@@ -96,7 +124,7 @@ local function zmq_sopts_newindex(self, name, value)
     local socket = getmetatable(self).__socket
     local rv = internal['zmq_skt_setopt_' .. func[3]](socket, func[1], value)
     if rv == nil then
-        return nil, ('Failed zmq_setsockopt[%s]: %s'):format(name, zmq_strerror())
+        error(('Failed zmq_setsockopt[%s]: %s'):format(name, zmq_strerror()), 2)
     end
     return true
 end
@@ -118,7 +146,7 @@ local function zmq_copts_index(self, name)
     end
     local rv = internal.zmq_ctx_get(getmetatable(self).__ctx, func)
     if rv == -1 then
-        return nil, ('Failed zmq_ctx_get[%s]: %s'):format(name, zmq_strerror())
+        error(('Failed zmq_ctx_get[%s]: %s'):format(name, zmq_strerror()), 2)
     end
     return rv
 end
@@ -130,7 +158,7 @@ local function zmq_copts_newindex(self, name, value)
     end
     local rv = internal.zmq_ctx_set(getmetatable(self).__ctx, func, value)
     if rv == nil then
-        return nil, ('Failed zmq_ctx_set[%s]: %s'):format(name, zmq_strerror())
+        error(('Failed zmq_ctx_set[%s]: %s'):format(name, zmq_strerror()), 2)
     end
     return true
 end
@@ -257,14 +285,21 @@ local function zmq_socket_msg_send(self, msg, timeout)
 end
 
 -- timeout is ignored, for now
+-- TODO: store all connects/binds for multiple disconnects/unbinds
 local function zmq_socket_establish(name)
     return function(self, uri, timeout)
         local rv = internal_lib['async_' .. name](self.socket, uri, timeout)
         if rv == -1 then
-            return nil, ('Failed to zmq_%s: %s'):format(name, zmq_strerror()), _errno()
+            return nil, ('Failed to zmq_%s: %s'):format(name, zmq_strerror()), errno()
         end
         return true
     end
+end
+
+local function zmq_socket_close(self)
+    local rv = internal.zmq_close(self.socket)
+    self.socket = nil
+    return rv == 0
 end
 
 local zmq_socket_methods = {
@@ -276,6 +311,7 @@ local zmq_socket_methods = {
     send       = zmq_socket_send,
     msg_recv   = zmq_socket_msg_recv,
     msg_send   = zmq_socket_msg_send,
+    close      = zmq_socket_close,
 }
 
 local function zmq_socket_new(ctx, socket)
@@ -283,14 +319,27 @@ local function zmq_socket_new(ctx, socket)
         ctx    = ctx,
         socket = socket,
         opts   = zmq_sopts_new(socket)
-    }, { __index = zmq_socket_methods })
+    }, { __index = zmq_socket_methods, __type = 'zmq.socket' })
 end
 
+-- TODO: close all sockets in case of shutdown
 local function zmq_ctx_shutdown(self)
-    return internal.zmq_ctx_shutdown(ffi.gc(self.ctx, nil))
+    if self.closed then
+        errno(errno.EFAULT)
+        return nil
+    end
+
+    self.closed = true
+    return internal.zmq_ctx_shutdown(ffi.gc(self.ctx, nil)) == 0
 end
 
+-- TODO: save all opened sockets into table
 local function zmq_ctx_socket(self, socket_type)
+    if self.closed then
+        errno(errno.EFAULT)
+        return nil
+    end
+
     local socket_typeno = internal.SOCKET_TYPES['ZMQ_' .. socket_type:upper()]
     if socket_typeno == nil then
         error(('Failed zmq_socket[%s]: unknown socket type'):format(socket_type), 2)
@@ -313,13 +362,14 @@ local function zmq_ctx_new()
         error('Failed zmq_ctx_new: ' .. zmq_strerror())
     end
     return setmetatable({
-        ctx  = ctx,
-        opts = zmq_copts_new(ctx)
-    }, { __index = zmq_ctx_methods })
+        ctx    = ctx,
+        closed = false,
+        opts   = zmq_copts_new(ctx)
+    }, { __index = zmq_ctx_methods, __type = 'zmq.context' })
 end
 
 return {
-    context_new = zmq_ctx_new,
-    msg_new     = zmq_msg_new,
-    strerror    = zmq_strerror,
+    context  = zmq_ctx_new,
+    msg_new  = zmq_msg_new,
+    strerror = zmq_strerror,
 }
