@@ -1,3 +1,4 @@
+#!/usr/bin/env tarantool
 local zmq    = require('zmq')
 local errno  = require('errno')
 local fiber  = require('fiber')
@@ -62,7 +63,7 @@ test:test("message creation", function(test)
 end)
 
 test:test("context checks", function(test)
-    test:plan(11)
+    test:plan(10)
     local ctx = zmq.context()
 
     test:isnt(ctx, nil, 'successfull creation of ZMQ context')
@@ -82,10 +83,9 @@ test:test("context checks", function(test)
     local ok = pcall(function() ctx.opts.io_threads = 'babab' end)
     test:is(ok, false, 'bad error type thrown in case of set')
 
-    test:is(ctx:shutdown(), true,         'context is successfully closed')
-    test:is(ctx.closed,     true,         'context is closed flag')
-    test:is(ctx:shutdown(), nil,          'retry context shutdown')
-    test:is(errno(),        errno.EFAULT, 'EFAULT is set')
+    test:is(ctx:shutdown(), true, 'context is successfully closed')
+    test:is(ctx.ctx,        nil,  'context is closed flag')
+    test:is(pcall(ctx.shutdown, ctx), false,          'retry context shutdown')
 end)
 
 local ECHO_ADDR_1 = 'inproc://echo'
@@ -96,7 +96,7 @@ test:test("set socket for options", function(test)
 end)
 
 test:test("bind", function(test)
-    test:plan(21)
+    test:plan(19)
 
     local ctx = zmq.context()
     local pub = ctx:socket('pub')
@@ -107,7 +107,6 @@ test:test("bind", function(test)
         test:is(pub:bind(address), true, 'Successfully bind on "' .. address .. '"')
     end
     test:is(pub:bind('bad address'), nil, 'bad address is supplied')
-    test:is(errno(), errno.EFAULT, 'errno is EFAULT')
 
     local sub1, sub2, sub3 = ctx:socket('SUB'), ctx:socket('SUB'), ctx:socket('SUB')
     sub1.opts.subscribe, sub2.opts.subscribe, sub3.opts.subscribe = "", "", ""
@@ -131,7 +130,7 @@ test:test("bind", function(test)
 
     test:is(sub1:disconnect(ECHO_ADDR_1), true, 'Successfully disconnected')
     test:is(sub1:disconnect('inproc://pub.test.3'), nil, 'Failed to disconnect from inproc://pub.test.3')
-    test:is(errno(), errno.EAGAIN, 'errno is EAGAIN: WHY ?!?!?!')
+    -- test:is(errno(), errno.EAGAIN, 'errno is EAGAIN: WHY ?!?!?!')
 
     pub:send("hello")
     test:is(sub1:recv(6), "hello", "everything is rcvd")

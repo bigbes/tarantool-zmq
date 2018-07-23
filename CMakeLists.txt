@@ -6,9 +6,11 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
-# Find Tarantool and Lua dependecies
-set(TARANTOOL_FIND_REQUIRED ON)
-find_package(Tarantool)
+# Find Tarantool, Lua dependecies and ZeroMQ
+find_package(Tarantool REQUIRED)
+find_package(ZeroMQ REQUIRED)
+message(STATUS "ZeroMQ libraries ${ZeroMQ_LIBRARY}")
+
 include_directories(${TARANTOOL_INCLUDE_DIRS})
 
 # Set CFLAGS
@@ -30,4 +32,3 @@ set_tests_properties(zmq PROPERTIES ENVIRONMENT "${LUA_PATH};${LUA_SOURCE_DIR}")
 add_custom_target(check
     WORKING_DIRECTORY ${PROJECT_BUILD_DIR}
     COMMAND ctest -V)
-

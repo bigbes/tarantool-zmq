@@ -12,30 +12,7 @@ local ffi   = require("ffi")
 local bit   = require("bit")
 local errno = require("errno")
 
-local function oload(t)
-  local err = {}
-  for _, name in ipairs(t) do
-    local ok, mod = pcall(ffi.load, name)
-    if ok then
-        return mod
-    end
-    table.insert(err, mod)
-  end
-  error(table.concat(err, '\n'))
-end
-
-local zlibs = {
-    "zmq",      "libzmq",
-    "zmq.so.5", "libzmq.so.5",
-    "zmq.so.4", "libzmq.so.4",
-    "zmq.so.3", "libzmq.so.3",
-    "/usr/local/lib/libzmq.so",
-    "/usr/local/lib/libzmq.so.5",
-    "/usr/local/lib/libzmq.so.4",
-    "/usr/local/lib/libzmq.so.3",
-}
-
-local libzmq3 = oload(zlibs)
+local libzmq3 = ffi.load('zmq');
 
 local int_t      = ffi.typeof("int")
 local aint_t     = ffi.typeof("int[1]")

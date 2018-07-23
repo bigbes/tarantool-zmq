@@ -24,3 +24,4 @@ install_manifest.txt
 VERSION
 Testing
 CTestTestfile.cmake
+.rocks
