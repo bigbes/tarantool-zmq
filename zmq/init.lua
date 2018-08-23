@@ -322,6 +322,24 @@ local function zmq_socket_msg_send(self, msg, timeout)
     end
 end
 
+local function zmq_socket_connect(self, uri, timeout)
+    zmq_socket_check(self, 'connect', 'uri, timeout')
+
+    if timeout then
+        local old_timeout = self.opts.connect_timeout
+        self.opts.connect_timeout = timeout
+    end
+    local rv = c_api.async_connect(self.socket, uri, timeout)
+    if timeout then
+        self.opts.connect_timeout = old_timeout
+    end
+
+    if rv == -1 then
+        return nil, 'Failed to zmq_connect: ' .. zmq_strerror(), errno()
+    end
+    return true
+end
+
 -- timeout is ignored, for now
 -- TODO: store all connects/binds for multiple disconnects/unbinds
 local function zmq_socket_establish(name)
@@ -346,7 +364,7 @@ local function zmq_socket_close(self)
 end
 
 local zmq_socket_methods = {
-    connect    = zmq_socket_establish('connect'),
+    connect    = zmq_socket_connect,
     disconnect = zmq_socket_establish('disconnect'),
     bind       = zmq_socket_establish('bind'),
     unbind     = zmq_socket_establish('unbind'),
