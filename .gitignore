@@ -25,3 +25,5 @@ VERSION
 Testing
 CTestTestfile.cmake
 .rocks
+build
+packpack

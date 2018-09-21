@@ -1,0 +1,5 @@
+tarantool-zmq (0.1.0-1) unstable; urgency=medium
+
+  * Initial release
+
+ -- Eugene Blikh <bigbes@gmail.com>  Fri, 21 Sep 2018 12:15:00 +0300

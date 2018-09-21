@@ -1,0 +1,19 @@
+Source: tarantool-zmq
+Priority: optional
+Section: database
+Maintainer: Eugene Blikh <bigbes@gmail.com>
+Build-Depends: debhelper (>= 9), cdbs,
+               cmake (>= 2.8),
+               tarantool-dev (>= 1.9.0.0),
+               libczmq-dev
+Standards-Version: 3.9.6
+Homepage: https://github.com/bigbes/tarantool-zmq
+Vcs-Git: git://github.com/bigbes/tarantool-zmq.git
+Vcs-Browser: https://github.com/bigbes/tarantool-zmq
+
+Package: tarantool-zmq
+Architecture: i386 amd64 armhf arm64
+Depends: tarantool (>= 1.9.0.0), ${shlibs:Depends}, ${misc:Depends}
+Pre-Depends: ${misc:Pre-Depends}
+Description: ZMQ sockets for Tarantool
+ ZMQ sockets (client/server) for Tarantool

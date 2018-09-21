@@ -1,0 +1,5 @@
+tarantool-zmq/
+files
+stamp-*
+*.substvars
+*.log
